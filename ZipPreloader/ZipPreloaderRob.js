@@ -51,8 +51,9 @@ $(document).ready(function() {
                     else if (path.match(/\.gif$/i))
                       blob = new Blob([content], {'type': 'image/gif'});
                     else return;
-                    var src = URL.createObjectURL(blob);
-                    resourcesRepository[path] = src;
+                    var tag = $("<audio>").src(URL.createObjectURL(blob)).css("display","none");
+                    resourcesRepository[path] = tag;
+                    $("html").append(tag);
                 });
             });
         });
@@ -136,17 +137,17 @@ $(document).ready(function() {
           // Replacing all audios and images with a blob URL
           $("audio").each(function() {
             var t = this;
-            var replaced = false;
             $(t).find("source").each(function(){
-              var src = $(this).attr("src");
-              if (inRep(src)) {
-                var source = $("<source>");
-                source.attr({type: $(this).attr("type"), src: inRep(src)});
-                $(this).replaceWith(source);
-                replaced = true;
-              }
-              if (replaced) t.load();
+              var filename = $(this).attr("src");
             });
+            var tag = inRep(filename);
+            if (inRep(filename))
+              $(t).replaceWith(tag);
+            if ($(t).attr("autoplay"))
+              tag.play();
+            // if (replaced) t.load();
+            
+
           });
           // Check images
           $("#bod").find("*").each(function() {
