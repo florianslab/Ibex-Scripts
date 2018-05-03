@@ -54,8 +54,6 @@
 //      )
 //
 //
-//  - Fix what happens when no host and no zip provided
-//
 //  - Add a VIDEO Instruction
 //
 //  - Add a Tooltip Instruction
@@ -285,15 +283,10 @@ var items;
         */
     };
 
-    PennController.AddHost = function() {
+    PennController.AddHost = function(host) {
         if (!PennController.hasOwnProperty("hosts"))
             PennController.hosts = [];
-        for (let a = 0; a < arguments.length; a++) {
-            if (typeof(arguments[a])=="string" && arguments[a].match(/^https?:\/\//i))
-                PennController.hosts.push(arguments[a]);
-            else
-                console.log("Warning: host #"+a+" is not a valid URL.", arguments[a]);
-        }
+        PennController.hosts.push(host);
     }
 
 
@@ -1046,7 +1039,7 @@ var items;
                 for (let h in PennController.hosts) {
                     if (typeof(PennController.hosts[h]) != "string" || !PennController.hosts[h].match(/^http/i))
                         continue;
-                    ti.fetchResource(PennController.hosts[h]+resource, type);
+                    return ti.fetchResource(PennController.hosts[h]+resource, type);
                 }
             }
 
@@ -2370,39 +2363,26 @@ var items;
                         }
                     }
                 }
-                let unshuffled = [].concat(instructionIndices);
                 // Now, shuffle the indices
                 fisherYates(instructionIndices);
                 // Reset the lists
-                ti.shuffledInstructions = $.extend({}, ti.instructions);
-                ti.shuffledKeyList = [].concat(ti.keyList);
+                ti.shuffledInstructions = {};
+                ti.shuffledKeyList = [];
                 // Go through each index now
                 for (let i in instructionIndices) {
-                    let oldIndex = unshuffled[i],
-                        newIndex = instructionIndices[i], 
-                        origin = ti.instructions[newIndex].origin;
-                    ti.shuffledInstructions[oldIndex] = ti.instructions[newIndex];
-                    if (oldIndex < ti.keyList.length)
-                        ti.shuffledKeyList[oldIndex] = ti.keyList[newIndex];
+                    let index = instructionIndices[i], 
+                        origin = ti.instructions[index].origin;
+                    ti.shuffledInstructions[i] = ti.instructions[index];
+                    if (i < ti.keyList.length)
+                        ti.shuffledKeyList.push(ti.keyList[index]);
                     // Add a SHUFFLE tag with the proper index before each instruction
-                    let shuf = $("<shuffle>").attr("id", oldIndex).css({
-                        position: ti.instructions[newIndex].origin.element.css("position"),
-                        left: ti.instructions[newIndex].origin.element.css("left"),
-                        top: ti.instructions[newIndex].origin.element.css("top")
-                    });
-                    origin.element.before(shuf);
-                } 
+                    origin.element.before($("<shuffle>").attr("id", i));
+                }
                 // Go through each shuffle tag
                 $("shuffle").each(function(){
                     let index = $(this).attr('id');
-                    // Add the element of the INDEX-th instruction there
+                    // Add the element of the INDEX instruction there
                     $(this).after(ti.instructions[index].origin.element);
-                    // And update relevant CSS
-                    ti.instructions[index].origin.element.css({
-                        position: $(this).css("position"),
-                        left: $(this).css("left"),
-                        top: $(this).css("top")
-                    });
                 })
                 // And now remove every SHUFFLE tag
                 $("shuffle").remove();
@@ -3099,7 +3079,7 @@ var items;
             if (_globalPreload && _instructionsToPreload.length) {
                 // Add each of them
                 for (let i in _instructionsToPreload)
-                    _t.addToPreload(i);
+                    _t.addToPreload(p);
             }
             // If anything to preload
             if (_t.toPreload) {

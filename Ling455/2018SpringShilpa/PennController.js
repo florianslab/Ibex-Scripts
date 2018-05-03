@@ -54,8 +54,6 @@
 //      )
 //
 //
-//  - Fix what happens when no host and no zip provided
-//
 //  - Add a VIDEO Instruction
 //
 //  - Add a Tooltip Instruction
@@ -285,15 +283,10 @@ var items;
         */
     };
 
-    PennController.AddHost = function() {
+    PennController.AddHost = function(host) {
         if (!PennController.hasOwnProperty("hosts"))
             PennController.hosts = [];
-        for (let a = 0; a < arguments.length; a++) {
-            if (typeof(arguments[a])=="string" && arguments[a].match(/^https?:\/\//i))
-                PennController.hosts.push(arguments[a]);
-            else
-                console.log("Warning: host #"+a+" is not a valid URL.", arguments[a]);
-        }
+        PennController.hosts.push(host);
     }
 
 
@@ -1046,7 +1039,7 @@ var items;
                 for (let h in PennController.hosts) {
                     if (typeof(PennController.hosts[h]) != "string" || !PennController.hosts[h].match(/^http/i))
                         continue;
-                    ti.fetchResource(PennController.hosts[h]+resource, type);
+                    return ti.fetchResource(PennController.hosts[h]+resource, type);
                 }
             }
 
@@ -2193,6 +2186,7 @@ var items;
                         // SELECT is a method that returns an instruction
                         ti._select(instruction);
                     });
+                    instruction.origin.element.addClass("PennController-Selector-Option");
                 }
                 else {
                     console.log("Warning: selector's entry #"+i+" is not a proper instruction.");

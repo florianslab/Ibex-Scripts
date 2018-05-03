@@ -63,31 +63,6 @@
 .Message-continue-link:visited { color: blue; }
 
 
-.PennController-selected {
-    border: solid 2px green;
-}
-.PennController-PennController {
-	width: 40em;
-	margin: auto;
-	text-align: center;
-}
-.PennController-PennController img {
-	margin: auto;
-}
-.PennController-PennController tr {
-	text-align: center;
-}
-.PennController-clickable {
-	color: blue;
-}
-span.PennController-clickable:hover {
-	cursor: pointer;
-}
-.PennController-Selector span:first-child {
-	margin-right: 50px;
-}
-
-
 .Question-Question {
     margin-left: 0;
     padding-left: 0;
@@ -146,6 +121,51 @@ span.Question-fake-link {
 }
 span:hover.Question-fake-link {
     cursor: pointer;
+}
+
+
+.ReversibleDashedSentence-sentence {
+     background-color: white;
+     clear: both;
+}
+.ReversibleDashedSentence-question {
+     padding-left: 0.6em;
+}
+.ReversibleDashedSentence-rating {
+    padding-left: 0.6em;
+}
+.ReversibleDashedSentence-sentence {
+    line-height: 400%;
+}
+.ReversibleDashedSentence-ospan {
+     border-bottom: 1px solid #9ea4b1;
+     background-color: white;
+}
+.ReversibleDashedSentence-ispan {
+     visibility: hidden;
+}
+.ReversibleDashedSentence-practice-text {
+    color: blue;
+    font-weight: bold;
+}
+.ReversibleDashedSentence-iphone-next {
+    clear: both;
+    background: black;
+    color: white;
+    foreground: white;
+    text-align: center;
+    display: table;
+    font-size: 20px;
+    padding-top: 1em;
+    padding-bottom: 1em;
+    padding-left: 2em;
+    padding-right: 2em;
+    margin-left: auto;
+    margin-right: auto;
+    cursor: pointer;
+    font-family: sans-serif;
+    font-weight: bold;
+    -webkit-border-radius: 5px;
 }
 
 
@@ -245,4 +265,14 @@ span.retry:hover {
 span.retry:visited {
     color: blue;
 }
+
+li.Question-scale-box {
+  width: 150px !important;
+  height: 150px !important;
+  padding: 10px !important;
+  margin-left: 10px !important;
+  margin-right: 10px !important;
+  float: center !important;
+}
+
 

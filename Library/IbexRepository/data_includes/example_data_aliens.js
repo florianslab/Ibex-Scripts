@@ -1,7 +1,10 @@
 var shuffleSequence = seq("checkTest", "test", "checkItems", startsWith("Item"));
 
 // Preloading a zip file
-PennController.PreloadZip("http://files.lab.florianschwarz.net/ibexfiles/PsEntAliens/Images.zip");
+PennController.PreloadZip("http://files.lab.florianschwarz.net/ibexfiles/PsEntAliens/Images.zip",
+                          "http://babel.ling.upenn.edu/~amygood/files/soundfiles/Practice_BT9_EG_Rev_Soundfiles.zip");
+
+PennController.AddHost("http://files.lab.florianschwarz.net/ibexfiles/Ex1Factives/Audio/");
 
 // Much quicker to type t than to type PennController.instruction each time
 var istr = PennController.instruction;
@@ -49,7 +52,13 @@ PennController.FeedItems(
         ,
         istr.text(item.AgainSentence)
         ,
+        istr.audio("thought_bike.mp3")
+        //istr.audio("w_beer_R.wav")
+            .record("play","end")
+            .wait()
+        ,
         istr.key("FJ")
+
 
     )
 

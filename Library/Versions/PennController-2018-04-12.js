@@ -54,13 +54,6 @@
 //      )
 //
 //
-//  - Fix what happens when no host and no zip provided
-//
-//  - Add a VIDEO Instruction
-//
-//  - Add a Tooltip Instruction
-//
-//  - Add a VoiceRecorder Instruction
 //
 //  - Mouse
 //      > Save mouse location on click events
@@ -72,6 +65,8 @@
 //                    .waitClick( PennController.image("imgMyImage") )
 //      PennController.mouse
 //                    .test.hover( PennController.image("imgMyImage") )
+//
+//  - Create one copy of preloaded element PER INSTRUCTION
 //
 //  - Add a .background method for Canvas, to specify color/image background
 //
@@ -93,13 +88,18 @@
 //  - Add a MOUSE Instruction?
 //          > record position
 //
+//  - Add a VIDEO Instruction
+//
+//  - Add a Tooltip Instruction
+//
+//  - Add a VoiceRecorder Instruction
+//
 //  - Add support for HTML files to the t() function (chunk_includes)
 //
 //  - Integrate an instruction equivalent to the DashedSentence controller?
 //
 //  - Add parameters to the WAIT function of AUDIO
 //      on playstart or playend or stop < ?
-//
 //
 //
 //
@@ -119,9 +119,6 @@
 //  - Add a first trial that measures latencies?
 //
 //
-//
-//  DONE
-//  - Create one copy of preloaded element PER INSTRUCTION
 //
 //  DONE
 //  - Rewrite ComplexInstr to add its instructions UPON RUNNING, and only if they're not already part of #bod
@@ -285,15 +282,10 @@ var items;
         */
     };
 
-    PennController.AddHost = function() {
+    PennController.AddHost = function(host) {
         if (!PennController.hasOwnProperty("hosts"))
             PennController.hosts = [];
-        for (let a = 0; a < arguments.length; a++) {
-            if (typeof(arguments[a])=="string" && arguments[a].match(/^https?:\/\//i))
-                PennController.hosts.push(arguments[a]);
-            else
-                console.log("Warning: host #"+a+" is not a valid URL.", arguments[a]);
-        }
+        PennController.hosts.push(host);
     }
 
 
@@ -307,9 +299,6 @@ var items;
     // used in the instructions' EXTEND method to abort chain of execution
     var Abort = new Object;
 
-
-    // CONTROLLERS
-    //
     // The current controller (upon execution)
     var _ctrlr = null;
 
@@ -319,30 +308,14 @@ var items;
     // The list of controller created with PennController
     var _listOfControllers = [];
 
-    // INSTRUCTIONS
-    //
-    // The instructions of each controller
-    var _localInstructions = [{}];
-
-    // PRELOADING
-    //
-    // All the resources that require preloading
-    var _instructionsToPreload = [];
-
     // All the image and audio files
     var _preloadedFiles = {};
-    //      ZIP
-    // List of URLs to ZIP files
+
+    // List of ZIP files
     var _URLsToLoad = [];
-    //
-    // Dictionary of Blob's for unzipped resources
-    var _unzippedResources = {};
-    //
-    // Determines whether looking in zip files in priority
-    var _zipPriority = true;
-    //
-    // The list of functions to call when all the files have been unzipped
-    var _zipCallbacks = [];
+
+    // Associates preloaded files with callback functions
+    var _preloadCallbacks = {};
 
     // How long the preloader should wait before ignoring failure to preload (ms)
     var _timeoutPreload = 120000;
@@ -362,11 +335,20 @@ var items;
     // Whether ALL resources should be preloaded at once and asap
     var _globalPreload = true;
 
+    // Resources called by instructions
+    var _resourcesInstructions = {};
+
     // Youtube videos to load
     var _youtubeVideos = {};
 
+    // Associates each resource to preload with its instructions
+    var _resourcesToPreload = {};
+
     // The elements being appended
     var _elementsToAppend = [];
+
+    // The instructions of each controller
+    var _localInstructions = [{}];
 
     // The instructions of each controller
     var _pennControllerResources = {};
@@ -600,8 +582,29 @@ var items;
     //
     //  =========================================
 
+
+    // Adds a file to the preloaded files
+    function _addPreloadedFile(file, element) {
+        if (_preloadedFiles.hasOwnProperty(file))
+            console.log("Warning (Preload): overriding duplicate file '"+file+"'");
+        _preloadedFiles[file] = element;
+        // Going through the instructions awaiting to fetch the file
+        if (_resourcesInstructions.hasOwnProperty(file)) {
+            // Set ELEMENT as their resource
+            for (i in _resourcesInstructions[file])
+                _resourcesInstructions[file][i]._setResource(element);
+        }
+        // Running any 
+        if (_preloadCallbacks.hasOwnProperty(file)) {
+            for (let f in _preloadCallbacks[file]) {
+                if (_preloadCallbacks[file][f] instanceof Function)
+                    _preloadCallbacks[file][f]();
+            }
+        }
+    }
+
     // Returns only the items that will be run (see latin-squared designs)
-    // called by _checkPreload (but could be useful for other tricks)
+    // called by _checkPreload
     function _filteredItems(items) {
         let filteredItems = [];
         let latinSquared = {};
@@ -638,12 +641,15 @@ var items;
     function _checkPreload(controller) {
         // ====     BUILD LIST OF RESOURCES     ====
         //
-        let instructions = [];
-
-        // Build the list of label predicates (see IBEX shuffle.js)
-        let labelPredicates = [];
-        // If label predicates are passed, go through them
-        if (controller.options.preload.hasOwnProperty(0)) {
+        let resources = [];
+        // No argument passed: check all resources
+        if (!controller.options.preload.hasOwnProperty(0))
+            resources = Object.keys(_resourcesToPreload);
+        // If arguments are passed...
+        else {
+            // Build the list of label predicates (see IBEX shuffle.js)
+            let labelPredicates = [];
+            // Go through the arguments (should be item labels/functions on item labels)
             for (let c in controller.options.preload) {
                 let predicate = controller.options.preload[c];
                 if (typeof(predicate) == "number")
@@ -653,52 +659,49 @@ var items;
                     predicate = (s) => s == controller.options.preload[c];
                 labelPredicates.push(predicate);
             }
-        }
-        // No predicate passed: all labels are in
-        else
-            labelPredicates = [anyType];
-        // Get the list of items that will be run (exclude items not target by latin-squared designs)
-        let filteredItems = _filteredItems(items);
-        // Go through the list of items
-        for (let i in filteredItems) {
-            let item = filteredItems[i];
-            // Get the label of the item
-            let label = item[0];
-            // If the item is latin-squared (ie., label is an array) label is actually label's first element
-            if (label instanceof Array)
-                label = item[0][0];
-            // Go through the label predicates
-            let match = false;
-            for (l in labelPredicates) {
-                // If the label satisfies a predicate, then will add its instructions to the list
-                if (labelPredicates[l](label)) {
-                    match = true;
-                    break;
-                }
-            }
-            // If no match was found, go to the next item
-            if (!match)
-                continue;
-            // Check whether there are PennController elements in the item
-            let previousIsPennController = false;
-            for (let el in item) {
-                // First element is label [+ latin-square]
-                if (el == 0)
-                    continue;
-                let element = item[el];
-                // If the previous element was the string "PennController"
-                if (previousIsPennController) {
-                    // Reset for next elements
-                    previousIsPennController = false;
-                    // Making sure the current element is indeed a penncontroller
-                    if (element instanceof Object && element.hasOwnProperty("id")) {
-                        // Add the PennController's resources
-                        instructions = instructions.concat(_listOfControllers[element.id].preloadingInstructions);
+            // Get the list of items that will be run (exclude items not target by latin-squared designs)
+            let filteredItems = _filteredItems(items);
+            // Go through the list of items
+            for (let i in filteredItems) {
+                let item = filteredItems[i];
+                // Get the label of the item
+                let label = item[0];
+                // If the item is latin-squared (ie., label is an array) label is actually label's first element
+                if (label instanceof Array)
+                    label = item[0][0];
+                // Go through the label predicates
+                let match = false;
+                for (l in labelPredicates) {
+                    // If the label satisfies a predicate, then will add its resources to the list
+                    if (labelPredicates[l](label)) {
+                        match = true;
+                        break;
                     }
                 }
-                // If the current element is the string "PennController," note it down
-                if (el > 0 && element == "PennController")
-                    previousIsPennController = true;
+                // If no match was found, go to the next item
+                if (!match)
+                    continue;
+                // Check whether there are PennController elements in the item
+                let previousIsPennController = false;
+                for (let el in item) {
+                    // First element is label [+ latin-square]
+                    if (el == 0)
+                        continue;
+                    let element = item[el];
+                    // If the previous element was the string "PennController"
+                    if (previousIsPennController) {
+                        // Reset for next elements
+                        previousIsPennController = false;
+                        // Making sure the current element is indeed a penncontroller
+                        if (element instanceof Object && element.hasOwnProperty("id")) {
+                            // Add the PennController's resources
+                            resources = resources.concat(_listOfControllers[element.id].resources);
+                        }
+                    }
+                    // If the current element is the string "PennController," note it down
+                    if (el > 0 && element == "PennController")
+                        previousIsPennController = true;
+                }
             }
         }
         // ====     CREATE CONTROLLER'S CONTENT (AND TIMER)     ====
@@ -706,19 +709,22 @@ var items;
         // Add the preloading message
         let wait = $("<div id='waitWhilePreloading'>").append(_waitWhilePreloadingMessage);
         controller.element.append( wait );
-        // Go through the instructions to preload
-        for (let i in instructions) {
-            let instruction = instructions[i];
-            if (instruction && _instructionsToPreload.indexOf(instruction)>=0) {
+        // Go through the resources to preload
+        for (let r in resources) {
+            let resource = resources[r];
+            if (resource && !_preloadedFiles.hasOwnProperty(resource)) {
                 if (!controller.toPreload)
                     controller.toPreload = [];
-                // Add the instruction only if not already listed
-                if (controller.toPreload.indexOf(instruction) < 0) {
-                    controller.toPreload.push(instruction);
-                    // Extend _setResource (called when preload is done)
-                    instruction._setResource = instruction.extend("_setResource", function(){
+                // Add the resource only if not already listed (several instructions may share the same origin)
+                if (controller.toPreload.indexOf(resource) < 0) {
+                    controller.toPreload.push(resource);
+                    // If no callback for this resource yet, add it
+                    if (!_preloadCallbacks.hasOwnProperty(resource))
+                        _preloadCallbacks[resource] = [];
+                    // Binding a function upon file's preloading
+                    _preloadCallbacks[resource].push(function(){
                         // Remove the entry (set index here, as it may have changed by the time callback is called)
-                        let index = controller.toPreload.indexOf(instruction);
+                        let index = controller.toPreload.indexOf(resource);
                         if (index >= 0)
                             controller.toPreload.splice(index, 1);
                         // If no more file to preload, finish
@@ -802,64 +808,66 @@ var items;
     // Internal loading of the zip files
     // Will be executed when jQuery is ready
     function _preloadZip () {
-        // If no zip file to download, that's it, we're done
         if (!_URLsToLoad.length) return;
-        // Called for each URL that was passed
+
+        // This object will contain the list of audio files to preload
+        var resourcesRepository = {};
+        var numberUnzippedFiles = 0;
+
         var getZipFile = function(url){
-            // Called to remove a URL from the array (when unzipped done, or error)
-            function removeURL() {
-                let index = _URLsToLoad.indexOf(url);
-                if (index >= 0)
-                    _URLsToLoad.splice(index,1);
-                // If all the ZIP archives have been unzipped, call the callbacks
-                if (_URLsToLoad.length<=0) {
-                    console.log(_unzippedResources);
-                    for (f in _zipCallbacks) {
-                        if (_zipCallbacks[f] instanceof Function)
-                            _zipCallbacks[f].call();
-                    }
-                }
-            }
-            var zip = new JSZip();
-            JSZipUtils.getBinaryContent(url, function(error, data) {
-            if (error) {
-                // Problem with downloading the file: remove the URL from the array
-                removeURL();
-                // Throw the error
-                throw error;
-            }
+          var zip = new JSZip();
+          
+          JSZipUtils.getBinaryContent(url, function(error, data) {
+            if(error) throw error;
             // Loading the zip object with the data stream
             zip.loadAsync(data).then(function(){
                 console.log("Download of "+url+" complete");
-                // Number of files unzipped
-                var unzippedFilesSoFar = 0;
+                var currentLength = 0;
                 // Going through each zip file
                 zip.forEach(function(path, file){
                     // Unzipping the file, and counting how far we got
                     file.async('arraybuffer').then(function(content){
-                        // Excluding weird MACOS zip files
-                        if (!path.match(/__MACOS.+\/\.[^\/]+$/)) {
-                            // Getting rid of path, keeping just filename
-                            let filename = path.replace(/^.*?([^\/]+)$/,"$1");
-                            // Type will determine the type of Blob and HTML tag
-                            let type = "";
-                            // AUDIO
-                            if (filename.match(/\.(wav|mp3|ogg)$/i))
-                                type = "audio/"+filename.replace(/^.+\.([^.]+)$/,"$1").replace(/mp3/i,"mpeg").toLowerCase();
-                            // IMAGE
-                            else if (filename.match(/\.(png|jpe?g|gif)$/i))
-                                type = "image/"+filename.replace(/^.+\.([^.]+)$/,"$1").replace(/jpg/i,"jpeg").toLowerCase();
-                            // Add blob only if type was recognized (ie. type != "")
-                            if (type.length > 0)
-                                // Create the BLOB object
-                                _unzippedResources[filename] = {blob: new Blob([content], {type: type}), type: type};
-                                // SRC attribute points to the dynamic Blob object
-                            //let attr = {src: URL.createObjectURL(blob), type: type};
+                        // Incrementing now, because 'return' if the file's type doesn't match
+                        currentLength++;
+                        // If all the files have been unzipped
+                        if (currentLength >= Object.keys(zip.files).length) {
+                            // Remove the URL from the array
+                            let index = _URLsToLoad.indexOf(url);
+                            if (index >= 0)
+                                _URLsToLoad.splice(index,1);
                         }
-                        unzippedFilesSoFar++;
-                        // All files unzipped: remove the URL from the array
-                        if (unzippedFilesSoFar >= Object.keys(zip.files).length)
-                            removeURL();
+                        // Excluding weird MACOS zip files
+                        if (path.match(/__MACOS.+\/\.[^\/]+$/))
+                            return;
+                        // Getting rid of path, keeping just filename
+                        let filename = path.replace(/^.*?([^\/]+)$/,"$1");
+                        // Type will determine the type of Blob and HTML tag
+                        let type = "";
+                        // AUDIO
+                        if (filename.match(/\.(wav|mp3|ogg)$/i))
+                            type = "audio/"+filename.replace(/^.+\.([^.]+)$/,"$1").replace(/mp3/i,"mpeg").toLowerCase();
+                        // IMAGE
+                        else if (filename.match(/\.(png|jpe?g|gif)$/i))
+                            type = "image/"+filename.replace(/^.+\.([^.]+)$/,"$1").replace(/jpg/i,"jpeg").toLowerCase();
+                        // Unrecognized
+                        else 
+                            return;
+                        // Create the BLOB object
+                        let blob = new Blob([content], {type: type});
+                        // SRC attribute points to the dynamic Blob object
+                        let attr = {src: URL.createObjectURL(blob), type: type};
+                        // If Audio
+                        if (type.match(/audio/)) {
+                            // Add SOURCE inside AUDIO, and add 'preload=auto'
+                            let element = $("<audio>").append($("<source>").attr(attr)).css("display", "none").attr({preload: "auto"});
+                            // Add audio to the document so that they actually preload
+                            $("html").append(element);
+                            // And bind a CANPLAY event (for some reason never fires canplayTHROUGH in Firefox, though local file...)
+                            element.one("canplay", function(){ _addPreloadedFile(filename, element); });
+                        }
+                        // If image, add it directly (no need to preload)
+                        else
+                            _addPreloadedFile(filename, $("<img>").attr(attr));
                     });
                 });
             });
@@ -958,17 +966,26 @@ var items;
         }
 
         // Adds a file to preloading
-        _addToPreload() {
-            // If the resource has already been set, preloading is already done
-            if (this.origin.resource)
+        _addToPreload(resource) {
+            // Do not add to preload if already added
+            if (this.origin.toPreload instanceof Array && this.origin.toPreload.indexOf(resource)>=0)
                 return Abort;
-            if (_instructionsToPreload.indexOf(this.origin)<0)
-                _instructionsToPreload.push(this.origin);
-            // And add the file to the current controller
-            if (!_controller.hasOwnProperty("preloadingInstructions"))
-                _controller.preloadingInstructions = [];
-            if (_controller.preloadingInstructions.indexOf(this.origin)<0)
-                _controller.preloadingInstructions.push(this.origin);
+            // Adding the file to the list of files to preload
+            if (!this.origin.toPreload)
+                this.origin.toPreload = [];
+            if (this.origin.toPreload.indexOf(resource) < 0) {
+                this.origin.toPreload.push(resource);
+                // Also add the file to the general list of preloading
+                if (!_resourcesToPreload.hasOwnProperty(resource))
+                    _resourcesToPreload[resource] = {instructions: [this.origin]};
+                else
+                    _resourcesToPreload[resource].instructions.push(this.origin);
+                // And add the file to the current controller
+                if (!_controller.hasOwnProperty("resources"))
+                    _controller.resources = [];
+                if (_controller.resources.indexOf(resource)<0)
+                    _controller.resources.push(resource);
+            }
         }
 
         // Method to set the resource
@@ -979,10 +996,6 @@ var items;
                 console.log("Warning: trying to replace resource for "+this.origin.content+"; several host copies of the same file? Ignoring new resource.");
                 return Abort;
             }
-            // Remove the instruction('s origin) from the list
-            let idx = _instructionsToPreload.indexOf(this.origin);
-            if (idx >= 0)
-                _instructionsToPreload.splice(idx, 1);
             // Set the resource
             this.origin.resource = resource;
         }
@@ -990,91 +1003,97 @@ var items;
         // Method to fetch a resource
         // Used by AudioInstr, ImageInstr, VideoInstr (YTInstr deals differently)
         fetchResource(resource, type) {
-            let ti = this;
-
-            // If resource already set, stop here
-            if (this.origin.resource)
-                return Abort;
-
-            // Priority to zipped resources: wait for everything to be unzipped first
-            if (_zipPriority && _URLsToLoad.length>0 && !resource.match(/^http/i)) {
-                _zipCallbacks.push(function() {
-                    ti.fetchResource(resource, type);
-                });
-                return;
-            }
-            let element;
-            let src;
-            let event = "load";
-            // If resource is part of unzipped resources
-            if (_unzippedResources.hasOwnProperty(resource)) {
-                type = _unzippedResources[resource].type;
-                src = URL.createObjectURL(_unzippedResources[resource].blob);
-                // Firefox won't reach readyState 4 with blob audios (but doesn't matter since file is local)
-                if (type.match(/audio/))
-                    event = "canplay";
-            }
-            // Try to load the file at the given URL
-            else if (resource.match(/^http/i)) {
-                let extension = resource.match(/\.([^.]+)$/);
-                // Resource should have an extension
-                if (!type && !extension) {
-                    console.log("Error: extension of resource "+file+" not recognized");
+            // If resource has already been fetched (or is being fetched)
+            if (_resourcesInstructions.hasOwnProperty(resource)) {
+                // If the instruction's origin is already listed, abort
+                if (this.origin in _resourcesInstructions[resource])
                     return Abort;
-                }
-                // Getting the extension itself rather than the whole match
-                extension = extension[1];
-                // AUDIO FILE
-                if (type == "audio" || extension.match(/mp3|ogg|wav/i)) {
-                    type = "audio/"+extension.toLowerCase().replace("mp3","mpeg").toLowerCase();
-                    src = resource;
-                    event = "canplaythrough";
-                }
-                // IMAGE
-                else if (type == "image" || extension.match(/gif|png|jpe?g/i)) {
-                    type = "image/"+extension.replace(/jpg/i,"jpeg").toLowerCase();
-                    src = resource;
-                }
-                // VIDEO
-                else if (type == "video" || extension.match(/mp4|ogg|webm/i)) {
-                    // TO DO
+                // Else, add this instruction's origin to the list
+                _resourcesInstructions[resource].push(this.origin);
+                // Go through the instructions fecthing the resource
+                for (let i in _resourcesInstructions[resource]) {
+                    // If an instruction has already set its resource, use it
+                    if (_resourcesInstructions[resource][i].resource) {
+                        this.origin._setResource(_resourcesInstructions[resource][i].resource);
+                        return;
+                    }
                 }
             }
-            // Else, call fetchResource with each host URL (if any)
-            else if (PennController.hosts.length) {
-                // Trying to fetch the image from the host url(s)
-                for (let h in PennController.hosts) {
-                    if (typeof(PennController.hosts[h]) != "string" || !PennController.hosts[h].match(/^http/i))
-                        continue;
-                    ti.fetchResource(PennController.hosts[h]+resource, type);
+            // Else, this instruction('s origin) is the first to fetch the resource
+            else {
+                // This function creates an AUDIO of IMG tag and set instructions' origins' resource when successful
+                var createDistantResource = function (file, host) {
+                    let extension = file.match(/\.([^.]+)$/);
+                    let source = file;
+                    // If trying to add a host path, 'file' should remain path-less, but source has to include the host past
+                    if (typeof(host) == "string")
+                        source = host+file;
+                    // Resource should have an extension
+                    if (!extension && !type) {
+                        console.log("Error: extension of "+file+" not recognized as image, audio or video");
+                        return Abort;
+                    }
+                    // Getting the extension itself rather than the whole match
+                    extension = extension[1];
+                    // AUDIO FILE
+                    if (type == "audio" || extension.match(/mp3|ogg|wav/i)) {
+                        // Creation of an AUDIO tag
+                        let audioType = extension.toLowerCase().replace("mp3","mpeg"),
+                            audio = $("<audio>").append($("<source>").attr({src: source, type: "audio/"+audioType}));
+                        // Adding to the document so as to help preloading
+                        $("html").append(audio.css("display","none"));
+                        // If the file was so fast to load that it can already play
+                        if (audio.get(0).readyState > 3) {
+                            _addPreloadedFile(file, audio);
+                            for (let i in _resourcesInstructions[file])
+                                _resourcesInstructions[file][i]._setResource(audio);
+                        }
+                        // Else, When can play through, set this audio to A
+                        else
+                            audio.one("canplay", function(){ 
+                                for (let i in _resourcesInstructions[file])
+                                    _resourcesInstructions[file][i]._setResource(audio);
+                            }).one("canplaythrough", function(){
+                                // Add the file as preloaded only if can play through
+                                _addPreloadedFile(file, audio);
+                            });
+                        audio.attr("preload", "auto");
+                    }
+                    // IMAGE
+                    else if (type == "image" || extension.match(/gif|png|jpe?g/i)) {
+                        let image = $("<img>").attr("src", source);
+                        // Adding to the document so as to help preloading
+                        $("html").append(image.css("display","none"));
+                        image.bind("load", function() {
+                            // Add the file as preloaded
+                            _addPreloadedFile(file, image);
+                            for (let i in _resourcesInstructions[file])
+                                _resourcesInstructions[file][i]._setResource(image);
+                        }).bind("error", function() {
+                            console.log("Warning: could not find image "+image);
+                        });
+                    }
+                    // VIDEO
+                    else if (type == "video" || extension.match(/mp4|ogg|webm/i)) {
+                        // TO DO
+                    }
                 }
-            }
-
-            // If Audio
-            if (type.match(/audio/)) {
-                // Add SOURCE inside AUDIO, and add 'preload=auto'
-                element = $("<audio>").append($("<source>").attr({src: src, type: type}))
-                                      .css("display", "none")
-                                      .attr({preload: "auto"});
-                // If the file was so fast to load that it can already play
-                if (element.get(0).readyState > (4 - (event=="canplay")))
-                    ti._setResource(element);
-                // Otherwise, bind a CANPLAYTHROUGH event
-                else 
-                    element.one(event, function(){
-                        // Once can play THROUGH, remove instruction from to preload
-                        ti._setResource(element);
-                    });
-            }
-            // If image, add it directly (no need to preload)
-            else if (type.match(/image/)) {
-                element = $("<img>").attr({src: src, type: type});
-                element.bind(event, function() {
-                    // Set resource
-                    ti.origin._setResource(element);
-                }).bind("error", function() {
-                    console.log("Warning: could not find image "+resource);
-                });
+                // Add this instruction's origin to the list of fetchers
+                _resourcesInstructions[resource] = [this.origin];
+                // Getting resource's extension
+                let ti = this;
+                // URL
+                if (resource.match(/^http/)) 
+                    createDistantResource(resource);
+                // Else, try to add hosts in front of resource
+                else {
+                    // Trying to fetch the image from the host url(s)
+                    for (let h in PennController.hosts) {
+                        if (typeof(PennController.hosts[h]) != "string" || !PennController.hosts[h].match(/^http/i))
+                            continue;
+                        createDistantResource(resource, PennController.hosts[h]);
+                    }
+                }
             }
         }
 
@@ -1406,7 +1425,7 @@ var items;
                 this.setElement($("<span>"));
                 // Calling addToPreload immediately if settings say so 
                 if (_autoPreloadAudio)
-                    this.origin._addToPreload();
+                    this.origin._addToPreload(file);
                 // Fetch the file
                 this.origin.fetchResource(file, "audio");
             }
@@ -1424,7 +1443,7 @@ var items;
                 let ti = this;
                 this.origin.audio.bind('ended', function(){ ti._whenEnded(); });
                 // If audio not entirely preloaded yet, send an error signal
-                if (this.audio.readyState < 4 && _instructionsToPreload.indexOf(this.origin)>=0)
+                if (this.audio.readyState < 4 && _resourcesInstructions.hasOwnProperty(this.content))
                     _ctrlr.save("ERROR_PRELOADING_AUDIO", this.content, Date.now(), "Audio was not fully loaded");
                 // Show controls
                 if (this.controls) {
@@ -1450,16 +1469,16 @@ var items;
             // Abort if origin's audio's already set
             if (this.origin.audio)
                 return Abort;
-            if (super._setResource(audio)==Abort)
-                return Abort;
             let ti = this.origin;
             this.origin.audio = audio;
             // Record the different events
             audio.bind("play", function(){
+                //ti.eventsRecord.push(["play", Date.now(), audio[0].currentTime]);
                 // Sometimes it takes time before the audio steam actually starts playing
                 let actualPlay = setInterval(function() { 
-                    // Check PAUSED and CURRENTIME every millisecond: then it's time to record!
-                    if (!audio[0].paused && audio[0].currentTime) {
+                    // Check PAUSED every millisecond: when false, it's time to record!
+                    if (!audio[0].paused) {
+                        //ti.eventsRecord.push(["actualPlay", Date.now(), audio[0].currentTime]);
                         ti.eventsRecord.push(["play", Date.now(), audio[0].currentTime]);
                         clearInterval(actualPlay);
                     }
@@ -1580,7 +1599,7 @@ var items;
         }
 
         preload() {
-            this.origin._addToPreload();
+            this.origin._addToPreload(this.origin.content);
             return this.newMeta(function(){ this.done(); });
         }
     }
@@ -1601,7 +1620,7 @@ var items;
                 this.image = null;
                 // Calling addToPreload immediately if settings say so 
                 if (_autoPreloadImages)
-                    this.origin._addToPreload();
+                    this.origin._addToPreload(image);
                 this.origin.fetchResource(image, "image");
             }
         }
@@ -1620,8 +1639,6 @@ var items;
 
         _setResource(image) {
             if (this.origin.image)
-                return Abort;
-            if (super._setResource(image)==Abort)
                 return Abort;
             this.origin.image = image.clone();
             this.origin.element.append(this.origin.image);
@@ -1645,7 +1662,7 @@ var items;
         // Returns an instruction that the image should be preloaded
         // Done immediately
         preload() {
-            this.origin._addToPreload();
+            this.origin._addToPreload(this.origin.content);
             return this.newMeta(function(){ this.done(); });
         }
     }
@@ -1758,6 +1775,16 @@ var items;
                 this.table = $("<table>").addClass("PennController-Complex");
                 // The instructions still to be done (initial state: all of them)
                 this.toBeDone = [];
+                // This instruction inherits all preloads of its children
+                this.toPreload = [];
+                let ti = this;
+                // Add preloads
+                for (let i in instructions) {
+                    if (instructions[i] instanceof Instruction)
+                        this.toPreload = this.toPreload.concat(instructions[i].origin.toPreload);
+                }
+                // Else, let TABLE be the element
+                //else
                 this.setElement(this.table);
             }
         }
@@ -2164,6 +2191,7 @@ var items;
                 this.selectedInstruction = null;
                 this.callbackFunction = null;
                 this.setElement($("<div>").addClass("PennController-Selector"));
+                this.toPreload = [];
                 this.selections = [];
             }
         }
@@ -2370,39 +2398,26 @@ var items;
                         }
                     }
                 }
-                let unshuffled = [].concat(instructionIndices);
                 // Now, shuffle the indices
                 fisherYates(instructionIndices);
                 // Reset the lists
-                ti.shuffledInstructions = $.extend({}, ti.instructions);
-                ti.shuffledKeyList = [].concat(ti.keyList);
+                ti.shuffledInstructions = {};
+                ti.shuffledKeyList = [];
                 // Go through each index now
                 for (let i in instructionIndices) {
-                    let oldIndex = unshuffled[i],
-                        newIndex = instructionIndices[i], 
-                        origin = ti.instructions[newIndex].origin;
-                    ti.shuffledInstructions[oldIndex] = ti.instructions[newIndex];
-                    if (oldIndex < ti.keyList.length)
-                        ti.shuffledKeyList[oldIndex] = ti.keyList[newIndex];
+                    let index = instructionIndices[i], 
+                        origin = ti.instructions[index].origin;
+                    ti.shuffledInstructions[i] = ti.instructions[index];
+                    if (i < ti.keyList.length)
+                        ti.shuffledKeyList.push(ti.keyList[index]);
                     // Add a SHUFFLE tag with the proper index before each instruction
-                    let shuf = $("<shuffle>").attr("id", oldIndex).css({
-                        position: ti.instructions[newIndex].origin.element.css("position"),
-                        left: ti.instructions[newIndex].origin.element.css("left"),
-                        top: ti.instructions[newIndex].origin.element.css("top")
-                    });
-                    origin.element.before(shuf);
-                } 
+                    origin.element.before($("<shuffle>").attr("id", i));
+                }
                 // Go through each shuffle tag
                 $("shuffle").each(function(){
                     let index = $(this).attr('id');
-                    // Add the element of the INDEX-th instruction there
+                    // Add the element of the INDEX instruction there
                     $(this).after(ti.instructions[index].origin.element);
-                    // And update relevant CSS
-                    ti.instructions[index].origin.element.css({
-                        position: $(this).css("position"),
-                        left: $(this).css("left"),
-                        top: $(this).css("top")
-                    });
                 })
                 // And now remove every SHUFFLE tag
                 $("shuffle").remove();
@@ -2575,7 +2590,7 @@ var items;
                 this.hasPlayed = false;
                 // Calling addToPreload immediately if settings say so 
                 if (_autoPreloadVideos)
-                    this.origin._addToPreload();
+                    this.origin._addToPreload(code+".yt");
             }
         }
 
@@ -2698,7 +2713,7 @@ var items;
             if (!this.origin.canPlay) {
                 this.origin.canPlay = true;
                 // Listing the YT video as preloaded
-                this.origin._setResource(this.iframe);
+                _addPreloadedFile(this.content+".yt", this.iframe);
                 // If video not played yet, play it
                 if (this.hasBeenRun && event.target.getPlayerState() != YT.PlayerState.PLAYING)
                     this._play();
@@ -2753,7 +2768,7 @@ var items;
         // Returns an instruction to preload the video
         // Done immediately
         preload() {
-            this.origin._addToPreload();
+            this.origin._addToPreload(this.origin.content+".yt");
             return this.newMeta(function(){ this.done(); });
         }
     }
@@ -3022,19 +3037,21 @@ var items;
             // #########################
             // PRELOADING PART 1
             //
-            // Adds an instruction that must be preloaded before the sequence starts
-            _t.addToPreload = function(instruction) {
+            // Adds a resource that must be preloaded before the sequence starts
+            _t.addToPreload = function(resource) {
                 // Add the resource if defined and only if not already preloaded
-                if (instruction && _instructionsToPreload.indexOf(instruction)>=0) {
+                if (resource && !_preloadedFiles.hasOwnProperty(resource)) {
                     if (!_t.toPreload)
                         _t.toPreload = [];
                     // Add the resource only if not already listed (several instructions may share the same origin)
-                    if (_t.toPreload.indexOf(instruction) < 0) {
-                        _t.toPreload.push(instruction);
-                        // Extend _setResource (called after preloading)
-                        instruction._setResource = instruction.extend("_setResource", function(){
+                    if (_t.toPreload.indexOf(resource) < 0) {
+                        _t.toPreload.push(resource);
+                        if (!_preloadCallbacks.hasOwnProperty(resource))
+                            _preloadCallbacks[resource] = [];
+                        // Binding a function upon file's preloading
+                        _preloadCallbacks[resource].push(function(){
                             // Remove the entry (set index here, as it may have changed by the time callback is called)
-                            let index = _t.toPreload.indexOf(instruction);
+                            let index = _t.toPreload.indexOf(resource);
                             if (index >= 0)
                                 _t.toPreload.splice(index, 1);
                             // If no more file to preload, run
@@ -3049,11 +3066,11 @@ var items;
                 }
             }
             // Check if the instruction requires a preloaded resource
-            if (!_globalPreload && _listOfControllers[this.id].hasOwnProperty("preloadingInstructions")) {
+            if (!_globalPreload && _listOfControllers[this.id].hasOwnProperty("resources")) {
                 // Go through each resource that next's origin has to preload
-                for (let i in _listOfControllers[this.id].preloadingInstructions)
+                for (let r in _listOfControllers[this.id].resources)
                     // Add resource
-                    _t.addToPreload(_listOfControllers[this.id].preloadingInstructions[i]);
+                    _t.addToPreload(_listOfControllers[this.id].resources[r]);
             }
             // 
             // END OF PRELOADING PART 1
@@ -3096,10 +3113,10 @@ var items;
             // PRELOADING PART 2
             //
             // If ALL resources should be preloaded at once (and if there are resources to preload to start with)
-            if (_globalPreload && _instructionsToPreload.length) {
+            if (_globalPreload && Object.keys(_resourcesToPreload).length) {
                 // Add each of them
-                for (let i in _instructionsToPreload)
-                    _t.addToPreload(i);
+                for (let p in _resourcesToPreload)
+                    _t.addToPreload(p);
             }
             // If anything to preload
             if (_t.toPreload) {
