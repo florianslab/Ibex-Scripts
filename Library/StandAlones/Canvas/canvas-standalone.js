@@ -1,3 +1,19 @@
+/* This software is licensed under a BSD license; see the LICENSE file for details. */
+
+//  ========================================= 
+//
+//      CANVAS
+//
+//  This is a stand-alone version of the 
+//  Canvas and Image instructions from
+//  PennController.
+//  Use it to generate place images
+//  on a canvas surface.
+//  See http://files.lab.florianschwarz.net/ibexfiles/CanvasCreation/
+//  for a visual editor that generates compatible code.
+//
+//  =========================================
+
 var canvas, image;
 
 (function(){

@@ -1,6 +1,14 @@
+/* This software is licensed under a BSD license; see the LICENSE file for details. */
+
 //  ========================================= 
 //
 //      FEED ITEMS
+//
+//  This is a stand-alone version of the 
+//  PennController.FeedItems method.
+//  Use it to generate items from a table
+//  after converting your CSV file using:
+//  http://spellout.net/ibexexps/PennController/GetTable/
 //
 //  =========================================
 
@@ -10,43 +18,6 @@ var PennController;
 if (PennController == undefined)
     PennController = {};
 
-// The TABLE class contains an 2x2 Array-Object and defines Item, Group and Label
-class Table {
-    constructor(table) {
-        if (!(table instanceof Array) || table.length < 2 || Object.keys(table[0]).length < 2)
-            return Abort;
-        this.table = table;
-        for (let col in table[0]) {
-            if (col.match(/^item$/i))
-                this.item = col;
-            if (col.match(/^group$/i))
-                this.group = col;
-            if (col.match(/^label$/i))
-                this.label = col;
-        }
-    }
-    setItem(col) {
-        if (!this.table[0].hasOwnProperty(col)) {
-            console.log("Error when setting table's item column: no column found with the name "+col);
-            return Abort;
-        }
-        this.item = col;
-    }
-    setGroup(col) {
-        if (!this.table[0].hasOwnProperty(col)) {
-            console.log("Error when setting table's item column: no column found with the name "+col);
-            return Abort;
-        }
-        this.group = col;
-    }
-    setLabel(col) {
-        if (!this.table[0].hasOwnProperty(col)) {
-            console.log("Error when setting table's item column: no column found with the name "+col);
-            return Abort;
-        }
-        this.label = col;
-    }
-}
 
 // The main function
 // FeedItems(new Table(...),                       // Optional, or reference to a Table object
@@ -214,3 +185,41 @@ FeedItems = function (param1, param2) {
         items = [];
     items = items.concat(_getItemsFrom(table, param1));
 };
+
+// The TABLE class contains an 2x2 Array-Object and defines Item, Group and Label
+class Table {
+    constructor(table) {
+        if (!(table instanceof Array) || table.length < 2 || Object.keys(table[0]).length < 2)
+            return Abort;
+        this.table = table;
+        for (let col in table[0]) {
+            if (col.match(/^item$/i))
+                this.item = col;
+            if (col.match(/^group$/i))
+                this.group = col;
+            if (col.match(/^label$/i))
+                this.label = col;
+        }
+    }
+    setItem(col) {
+        if (!this.table[0].hasOwnProperty(col)) {
+            console.log("Error when setting table's item column: no column found with the name "+col);
+            return Abort;
+        }
+        this.item = col;
+    }
+    setGroup(col) {
+        if (!this.table[0].hasOwnProperty(col)) {
+            console.log("Error when setting table's item column: no column found with the name "+col);
+            return Abort;
+        }
+        this.group = col;
+    }
+    setLabel(col) {
+        if (!this.table[0].hasOwnProperty(col)) {
+            console.log("Error when setting table's item column: no column found with the name "+col);
+            return Abort;
+        }
+        this.label = col;
+    }
+}
